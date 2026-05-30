@@ -1,5 +1,5 @@
-# jarvis.py — Complete Phase 1 JARVIS FINAL
-# Groq AI + faster-whisper + sounddevice + edge-tts + playsound
+# jarvis.py — Phase 2 JARVIS
+# Groq AI + faster-whisper + sounddevice + edge-tts + PC Control
 
 from faster_whisper import WhisperModel
 import sounddevice as sd
@@ -10,29 +10,115 @@ import asyncio
 import playsound
 import tempfile
 import os
+import subprocess
+import webbrowser
+import pyautogui
+import time
 from config import GROQ_API_KEY
 
 # ── Setup ────────────────────────────────────────────────
 print('Initialising JARVIS systems...')
 
-# Groq AI client
 client = Groq(api_key=GROQ_API_KEY)
 
-# faster-whisper for everything — wake word + command transcription
 print('Loading voice recognition...')
 whisper_model = WhisperModel('base', device='cpu', compute_type='int8')
 print('Voice recognition ready.')
 
-# Conversation memory
 conversation_history = []
 
 JARVIS_PERSONALITY = (
-    'You are JARVIS, a highly intelligent AI assistant. '
-    'You are witty, efficient and always address the user as Sir or Madam. '
-    'Keep responses concise — 1 to 3 sentences unless asked to elaborate.'
+    'You are JARVIS, a highly intelligent personal AI assistant installed on a Windows computer. '
+    'You are witty, efficient and always address the user as Sir. '
+    'Keep responses concise — 1 to 2 sentences unless asked to elaborate. '
+    'When the user asks to open an app, search something, or control the PC, '
+    'respond naturally and confirm what you are doing.'
 )
 
-# ── Functions ────────────────────────────────────────────
+# ── Apps directory — add your own apps here ──────────────
+APPS = {
+    'edge':          r'C:\Program Files (x86)\Microsoft\Copilot\Application\148.0.3967.70\msedge.exe',
+    'browser':       r'C:\Program Files (x86)\Microsoft\Copilot\Application\148.0.3967.70\msedge.exe',
+    'spotify':       r'C:\Users\victus\AppData\Local\Microsoft\WindowsApps\Spotify.exe',
+    'vs code':       r'C:\Users\victus\AppData\Local\Programs\Microsoft VS Code\Code.exe',
+    'vscode':        r'C:\Users\victus\AppData\Local\Programs\Microsoft VS Code\Code.exe',
+    'notepad':       'notepad.exe',
+    'calculator':    'calc.exe',
+    'file explorer': 'explorer.exe',
+    'task manager':  'taskmgr.exe',
+    'word':          r'C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE',
+    'excel':         r'C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE',
+}
+
+# ── PC Control Functions ──────────────────────────────────
+def open_app(app_name):
+    app_name = app_name.lower()
+    for key in APPS:
+        if key in app_name:
+            try:
+                subprocess.Popen(APPS[key])
+                return f'Opening {key}, Sir.'
+            except:
+                return f'Could not find {key} at the specified path, Sir.'
+    return None
+
+def search_web(query):
+    webbrowser.open(f'https://www.google.com/search?q={query}')
+    return f'Searching Google for {query}, Sir.'
+
+def search_youtube(query):
+    webbrowser.open(f'https://www.youtube.com/results?search_query={query}')
+    return f'Searching YouTube for {query}, Sir.'
+
+def take_screenshot():
+    path = r'C:\Users\victus\OneDrive\Desktop\screenshot.png'
+    pyautogui.screenshot(path)
+    return f'Screenshot saved to your Desktop, Sir.'
+
+def control_volume(action):
+    if 'up' in action or 'increase' in action:
+        for _ in range(5):
+            pyautogui.press('volumeup')
+        return 'Volume increased, Sir.'
+    elif 'down' in action or 'decrease' in action or 'lower' in action:
+        for _ in range(5):
+            pyautogui.press('volumedown')
+        return 'Volume decreased, Sir.'
+    elif 'mute' in action:
+        pyautogui.press('volumemute')
+        return 'Volume muted, Sir.'
+
+def handle_command(command):
+    command_lower = command.lower()
+
+    # Open app
+    if 'open' in command_lower:
+        result = open_app(command_lower)
+        if result:
+            return result
+
+    # YouTube search
+    if 'youtube' in command_lower:
+        query = command_lower.replace('search youtube for', '').replace('youtube', '').strip()
+        return search_youtube(query)
+
+    # Google search
+    if 'search' in command_lower or 'google' in command_lower:
+        query = command_lower.replace('search google for', '').replace('search for', '').replace('google', '').strip()
+        return search_web(query)
+
+    # Screenshot
+    if 'screenshot' in command_lower:
+        return take_screenshot()
+
+    # Volume
+    if 'volume' in command_lower:
+        return control_volume(command_lower)
+
+    # No local command matched — send to Groq
+    return None
+
+# ── Voice Functions ───────────────────────────────────────
 async def speak_async(text):
     communicate = edge_tts.Communicate(text, voice="en-GB-RyanNeural")
     await communicate.save("jarvis_reply.mp3")
@@ -87,7 +173,7 @@ def ask_groq(user_input):
     conversation_history.append({'role': 'assistant', 'content': reply})
     return reply
 
-# ── Main Loop ────────────────────────────────────────────
+# ── Main Loop ─────────────────────────────────────────────
 speak('JARVIS online. All systems nominal. Say Hey JARVIS to begin.')
 print('Waiting for wake word...')
 
@@ -113,12 +199,19 @@ try:
             speak('Shutting down all systems. Goodbye, Sir.')
             break
 
-        try:
-            reply = ask_groq(command)
-            speak(reply)
-        except Exception as e:
-            print(f'Groq error: {e}')
-            speak('I encountered an error, Sir. Please try again.')
+        # First try local PC command
+        local_reply = handle_command(command)
+
+        if local_reply:
+            speak(local_reply)
+        else:
+            # Fall back to Groq for questions
+            try:
+                reply = ask_groq(command)
+                speak(reply)
+            except Exception as e:
+                print(f'Groq error: {e}')
+                speak('I encountered an error, Sir. Please try again.')
 
 except KeyboardInterrupt:
     speak('Manual shutdown. Goodbye.')
