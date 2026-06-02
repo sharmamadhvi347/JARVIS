@@ -1,6 +1,4 @@
-# jarvis.py — Phase 2 JARVIS
-# Groq AI + faster-whisper + sounddevice + edge-tts + PC Control
-
+# jarvis.py — Phase 2 JARVIS with UI
 from faster_whisper import WhisperModel
 import sounddevice as sd
 import scipy.io.wavfile as wav
@@ -13,8 +11,15 @@ import os
 import subprocess
 import webbrowser
 import pyautogui
+import threading
 import time
+from ui import set_state, start_ui
 from config import GROQ_API_KEY
+
+# ── Start UI ─────────────────────────────────────────────
+ui_thread = threading.Thread(target=start_ui, daemon=True)
+ui_thread.start()
+time.sleep(1)
 
 # ── Setup ────────────────────────────────────────────────
 print('Initialising JARVIS systems...')
@@ -22,8 +27,8 @@ print('Initialising JARVIS systems...')
 client = Groq(api_key=GROQ_API_KEY)
 
 print('Loading voice recognition...')
-whisper_model = WhisperModel('base', device='cpu', compute_type='int8')
-print('Voice recognition ready.')
+whisper_model = WhisperModel('tiny', device='cpu', compute_type='int8')
+print('JARVIS ready.')
 
 conversation_history = []
 
@@ -35,7 +40,6 @@ JARVIS_PERSONALITY = (
     'respond naturally and confirm what you are doing.'
 )
 
-# ── Apps directory — add your own apps here ──────────────
 APPS = {
     'edge':          r'C:\Program Files (x86)\Microsoft\Copilot\Application\148.0.3967.70\msedge.exe',
     'browser':       r'C:\Program Files (x86)\Microsoft\Copilot\Application\148.0.3967.70\msedge.exe',
@@ -50,7 +54,7 @@ APPS = {
     'excel':         r'C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE',
 }
 
-# ── PC Control Functions ──────────────────────────────────
+# ── PC Control ───────────────────────────────────────────
 def open_app(app_name):
     app_name = app_name.lower()
     for key in APPS:
@@ -59,7 +63,7 @@ def open_app(app_name):
                 subprocess.Popen(APPS[key])
                 return f'Opening {key}, Sir.'
             except:
-                return f'Could not find {key} at the specified path, Sir.'
+                return f'Could not find {key}, Sir.'
     return None
 
 def search_web(query):
@@ -73,7 +77,7 @@ def search_youtube(query):
 def take_screenshot():
     path = r'C:\Users\victus\OneDrive\Desktop\screenshot.png'
     pyautogui.screenshot(path)
-    return f'Screenshot saved to your Desktop, Sir.'
+    return 'Screenshot saved to your Desktop, Sir.'
 
 def control_volume(action):
     if 'up' in action or 'increase' in action:
@@ -90,46 +94,35 @@ def control_volume(action):
 
 def handle_command(command):
     command_lower = command.lower()
-
-    # Open app
     if 'open' in command_lower:
         result = open_app(command_lower)
         if result:
             return result
-
-    # YouTube search
     if 'youtube' in command_lower:
         query = command_lower.replace('search youtube for', '').replace('youtube', '').strip()
         return search_youtube(query)
-
-    # Google search
     if 'search' in command_lower or 'google' in command_lower:
         query = command_lower.replace('search google for', '').replace('search for', '').replace('google', '').strip()
         return search_web(query)
-
-    # Screenshot
     if 'screenshot' in command_lower:
         return take_screenshot()
-
-    # Volume
     if 'volume' in command_lower:
         return control_volume(command_lower)
-
-    # No local command matched — send to Groq
     return None
 
-# ── Voice Functions ───────────────────────────────────────
+# ── Voice ────────────────────────────────────────────────
 async def speak_async(text):
     communicate = edge_tts.Communicate(text, voice="en-GB-RyanNeural")
     await communicate.save("jarvis_reply.mp3")
 
 def speak(text):
+    set_state("speaking")
     print(f'JARVIS: {text}')
     asyncio.run(speak_async(text))
     playsound.playsound("jarvis_reply.mp3")
     os.remove("jarvis_reply.mp3")
 
-def record_audio(duration=4, sample_rate=16000):
+def record_audio(duration=3, sample_rate=16000):
     audio = sd.rec(
         int(duration * sample_rate),
         samplerate=sample_rate,
@@ -143,18 +136,25 @@ def transcribe(audio, sample_rate):
     with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
         temp_path = f.name
         wav.write(temp_path, sample_rate, audio)
-    segments, _ = whisper_model.transcribe(temp_path)
+    segments, _ = whisper_model.transcribe(
+        temp_path,
+        language='en',
+        condition_on_previous_text=False,
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0
+    )
     text = ' '.join([s.text for s in segments]).strip()
     os.remove(temp_path)
     return text
 
 def wait_for_wake_word():
-    print('Listening...')
+    set_state("sleeping")
     while True:
         try:
-            audio, sr_rate = record_audio(duration=4)
-            text = transcribe(audio, sr_rate).lower()
-            print(f'Heard: {text}')
+            audio, sr_rate = record_audio(duration=3)
+            text = transcribe(audio, sr_rate).lower().strip()
+            if len(text) > 2:
+                print(f'Heard: {text}')
             if 'jarvis' in text:
                 return True
         except KeyboardInterrupt:
@@ -173,9 +173,8 @@ def ask_groq(user_input):
     conversation_history.append({'role': 'assistant', 'content': reply})
     return reply
 
-# ── Main Loop ─────────────────────────────────────────────
-speak('JARVIS online. All systems nominal. Say Hey JARVIS to begin.')
-print('Waiting for wake word...')
+# ── Main Loop ────────────────────────────────────────────
+speak('JARVIS online. Say Hey JARVIS to begin.')
 
 try:
     while True:
@@ -183,35 +182,34 @@ try:
         if not detected:
             break
 
+        set_state("listening")
         speak('Yes, Sir?')
 
-        print('Recording your command...')
-        audio, sr_rate = record_audio(duration=6)
+        audio, sr_rate = record_audio(duration=5)
         command = transcribe(audio, sr_rate)
 
-        if not command:
-            speak('I did not catch that, Sir. Please try again.')
+        if not command or len(command) < 3:
+            speak('I did not catch that, Sir.')
             continue
 
         print(f'You said: {command}')
 
-        if any(w in command.lower() for w in ['shutdown', 'turn off', 'goodbye', 'exit']):
-            speak('Shutting down all systems. Goodbye, Sir.')
+        if any(w in command.lower() for w in ['okay jarvis stop', 'stop jarvis', 'goodbye jarvis', 'shutdown']):
+            speak('Shutting down. Goodbye, Sir.')
             break
 
-        # First try local PC command
+        set_state("thinking")
         local_reply = handle_command(command)
 
         if local_reply:
             speak(local_reply)
         else:
-            # Fall back to Groq for questions
             try:
                 reply = ask_groq(command)
                 speak(reply)
             except Exception as e:
                 print(f'Groq error: {e}')
-                speak('I encountered an error, Sir. Please try again.')
+                speak('I encountered an error, Sir.')
 
 except KeyboardInterrupt:
     speak('Manual shutdown. Goodbye.')
