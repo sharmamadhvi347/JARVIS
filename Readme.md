@@ -13,7 +13,7 @@
 
 **Just A Rather Very Intelligent System**
 
-*A GPU-accelerated, voice-controlled AI assistant — built from scratch, for fun, because Iron Man.*
+*A GPU-accelerated, voice-controlled AI assistant — built from scratch, for fun.*
 
 <br/>
 
