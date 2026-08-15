@@ -3,32 +3,33 @@ import threading
 import math
 import time
 
-# ── State ────────────────────────────────────────────────
-# States: sleeping, listening, thinking, speaking
 current_state = "sleeping"
 
 class JarvisUI:
     def __init__(self):
+        ctk.set_appearance_mode("dark")
         self.root = ctk.CTk()
         self.root.title("")
-        self.root.geometry("200x200")
+        self.root.geometry("280x280")
         self.root.resizable(False, False)
-        self.root.attributes('-topmost', True)        # always on top
-        self.root.attributes('-alpha', 1.0)       # slightly transparent
-        self.root.overrideredirect(True)              # no title bar
-        self.root.configure(fg_color="#0a0a0a")
+        self.root.attributes('-topmost', True)
+        self.root.attributes('-alpha', 1.0)
+        self.root.overrideredirect(True)
+        self.root.configure(fg_color="#050510")
 
-        # Position bottom right corner
+        # Center on screen
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.root.geometry(f"200x200+{sw//2-100}+{sh//2-100}")
+        x = sw // 2 - 140
+        y = sh // 2 - 140
+        self.root.geometry(f"280x280+{x}+{y}")
 
-        # Canvas for drawing the orb
+        # Canvas
         self.canvas = ctk.CTkCanvas(
             self.root,
-            width=200,
-            height=200,
-            bg="#0a0a0a",
+            width=280,
+            height=280,
+            bg="#050510",
             highlightthickness=0
         )
         self.canvas.pack()
@@ -36,118 +37,239 @@ class JarvisUI:
         # Status label
         self.label = ctk.CTkLabel(
             self.root,
-            text="Sleeping",
-            font=("Arial", 11),
-            text_color="#555555"
+            text="SLEEPING",
+            font=("Helvetica", 10, "bold"),
+            text_color="#333355",
+            fg_color="transparent"
         )
-        self.label.place(relx=0.5, rely=0.85, anchor="center")
+        self.label.place(relx=0.5, rely=0.88, anchor="center")
 
-        # Make window draggable
+        # Name label
+        self.name_label = ctk.CTkLabel(
+            self.root,
+            text="J.A.R.V.I.S",
+            font=("Helvetica", 11, "bold"),
+            text_color="#222244",
+            fg_color="transparent"
+        )
+        self.name_label.place(relx=0.5, rely=0.94, anchor="center")
+
+        # Drag support
         self.canvas.bind("<Button-1>", self.start_drag)
         self.canvas.bind("<B1-Motion>", self.drag)
+
+        # Close on double click
+        self.canvas.bind("<Double-Button-1>", lambda e: None)
 
         self.angle = 0
         self.pulse = 0
         self.pulse_dir = 1
+        self.ring_angle = 0
+        self.frame = 0
         self.animate()
 
     def start_drag(self, e):
-        self.x = e.x
-        self.y = e.y
+        self._x = e.x
+        self._y = e.y
 
     def drag(self, e):
-        dx = e.x - self.x
-        dy = e.y - self.y
+        dx = e.x - self._x
+        dy = e.y - self._y
         x = self.root.winfo_x() + dx
         y = self.root.winfo_y() + dy
         self.root.geometry(f"+{x}+{y}")
 
+    def draw_ring(self, cx, cy, r, color, width=1, dash=None):
+        if dash:
+            self.canvas.create_oval(
+                cx-r, cy-r, cx+r, cy+r,
+                outline=color, width=width
+            )
+        else:
+            self.canvas.create_oval(
+                cx-r, cy-r, cx+r, cy+r,
+                outline=color, width=width
+            )
+
+    def hex_to_rgb(self, hex_color):
+        hex_color = hex_color.lstrip('#')
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+    def rgb_to_hex(self, r, g, b):
+        r = max(0, min(255, int(r)))
+        g = max(0, min(255, int(g)))
+        b = max(0, min(255, int(b)))
+        return f'#{r:02x}{g:02x}{b:02x}'
+
     def animate(self):
         global current_state
         self.canvas.delete("all")
+        self.frame += 1
 
-        cx, cy, r = 100, 95, 60
+        cx, cy = 140, 130
+        self.pulse += 0.04 * self.pulse_dir
+        if self.pulse > 1 or self.pulse < 0:
+            self.pulse_dir *= -1
+        self.ring_angle = (self.ring_angle + 2) % 360
 
         if current_state == "sleeping":
-            # Slow dim pulse — grey
-            self.pulse += 0.03 * self.pulse_dir
-            if self.pulse > 1 or self.pulse < 0:
-                self.pulse_dir *= -1
-            alpha_r = int(60 + 30 * self.pulse)
-            color = f"#{alpha_r:02x}{alpha_r:02x}{alpha_r:02x}"
+            # Dark blue dim pulse
+            r = 55 + int(15 * self.pulse)
+            core_color = self.rgb_to_hex(5, 5, r)
+            glow_color = self.rgb_to_hex(10, 10, 80 + int(20 * self.pulse))
+
+            # Outer rings — barely visible
+            self.draw_ring(cx, cy, 100, "#0a0a2a", 1)
+            self.draw_ring(cx, cy, 85, "#0d0d35", 1)
+            self.draw_ring(cx, cy, 70, "#0f0f40", 1)
+
+            # Core
             self.canvas.create_oval(
-                cx-r, cy-r, cx+r, cy+r,
-                fill=color, outline=""
+                cx-50, cy-50, cx+50, cy+50,
+                fill=core_color, outline=glow_color, width=1
             )
-            # Outer glow
+            # Inner glow
             self.canvas.create_oval(
-                cx-r-8, cy-r-8, cx+r+8, cy+r+8,
-                fill="", outline="#333333", width=1
+                cx-25, cy-25, cx+25, cy+25,
+                fill=self.rgb_to_hex(15, 15, 100 + int(30 * self.pulse)),
+                outline=""
             )
-            self.label.configure(text="Sleeping", text_color="#555555")
+            self.label.configure(text="SLEEPING", text_color="#1a1a4a")
+            self.name_label.configure(text_color="#111133")
 
         elif current_state == "listening":
-            # Fast blue pulse — listening for command
-            self.pulse += 0.08 * self.pulse_dir
-            if self.pulse > 1 or self.pulse < 0:
-                self.pulse_dir *= -1
-            size = r + 10 * self.pulse
+            # Electric blue — pulsing fast
+            self.pulse += 0.04
+            intensity = abs(math.sin(self.frame * 0.15))
+
+            # Outer glow rings
+            for i, (rad, alpha) in enumerate([(110, 0.1), (95, 0.2), (80, 0.35)]):
+                a = int(255 * alpha * intensity)
+                c = self.rgb_to_hex(0, int(100 * alpha), 255)
+                self.draw_ring(cx, cy, rad, c, width=1 + i)
+
+            # Rotating arc indicator
+            for i in range(12):
+                a = math.radians(self.ring_angle + i * 30)
+                x1 = cx + 65 * math.cos(a)
+                y1 = cy + 65 * math.sin(a)
+                size = 3 if i == 0 else 1
+                bright = 255 - i * 18
+                color = self.rgb_to_hex(0, bright // 2, bright)
+                self.canvas.create_oval(
+                    x1-size, y1-size, x1+size, y1+size,
+                    fill=color, outline=""
+                )
+
+            # Core
+            core_b = int(180 + 75 * intensity)
             self.canvas.create_oval(
-                cx-size-10, cy-size-10, cx+size+10, cy+size+10,
-                fill="", outline="#1a3a5c", width=2
+                cx-55, cy-55, cx+55, cy+55,
+                fill=self.rgb_to_hex(0, 50, 150),
+                outline=self.rgb_to_hex(0, 150, 255), width=2
             )
             self.canvas.create_oval(
-                cx-size, cy-size, cx+size, cy+size,
-                fill="#2E75B6", outline=""
+                cx-30, cy-30, cx+30, cy+30,
+                fill=self.rgb_to_hex(0, 100, core_b),
+                outline=""
             )
-            self.label.configure(text="Listening...", text_color="#2E75B6")
+            # Center dot
+            self.canvas.create_oval(
+                cx-8, cy-8, cx+8, cy+8,
+                fill="#ffffff", outline=""
+            )
+            self.label.configure(text="LISTENING", text_color="#00aaff")
+            self.name_label.configure(text_color="#0066cc")
 
         elif current_state == "thinking":
-            # Rotating arc — thinking
-            self.angle = (self.angle + 8) % 360
-            self.canvas.create_oval(
-                cx-r, cy-r, cx+r, cy+r,
-                fill="#1a1a2e", outline=""
-            )
-            # Rotating dots
-            for i in range(8):
-                a = math.radians(self.angle + i * 45)
-                dx = (r - 8) * math.cos(a)
-                dy = (r - 8) * math.sin(a)
-                size = 4 if i == 0 else 2
-                opacity = 255 - i * 28
-                c = f"#{opacity:02x}{opacity//2:02x}00"
+            # Gold spinning — thinking
+            self.ring_angle = (self.ring_angle + 6) % 360
+
+            # Background rings
+            self.draw_ring(cx, cy, 100, "#1a1000", 1)
+            self.draw_ring(cx, cy, 85, "#251500", 1)
+
+            # Spinning particles
+            for i in range(16):
+                a = math.radians(self.ring_angle + i * 22.5)
+                rad = 70 + 10 * math.sin(math.radians(i * 45 + self.frame * 3))
+                x1 = cx + rad * math.cos(a)
+                y1 = cy + rad * math.sin(a)
+                size = 4 if i % 4 == 0 else 2
+                bright = 255 - i * 12
+                color = self.rgb_to_hex(bright, int(bright * 0.7), 0)
                 self.canvas.create_oval(
-                    cx+dx-size, cy+dy-size,
-                    cx+dx+size, cy+dy+size,
-                    fill=c, outline=""
+                    x1-size, y1-size, x1+size, y1+size,
+                    fill=color, outline=""
                 )
-            self.label.configure(text="Thinking...", text_color="#F9A825")
+
+            # Inner spinning ring
+            for i in range(8):
+                a = math.radians(-self.ring_angle * 2 + i * 45)
+                x1 = cx + 45 * math.cos(a)
+                y1 = cy + 45 * math.sin(a)
+                color = self.rgb_to_hex(255, 180 - i * 15, 0)
+                self.canvas.create_oval(
+                    x1-3, y1-3, x1+3, y1+3,
+                    fill=color, outline=""
+                )
+
+            # Core
+            self.canvas.create_oval(
+                cx-30, cy-30, cx+30, cy+30,
+                fill="#1a0f00",
+                outline="#ffaa00", width=2
+            )
+            self.canvas.create_oval(
+                cx-12, cy-12, cx+12, cy+12,
+                fill="#ff8800", outline=""
+            )
+            self.label.configure(text="THINKING", text_color="#ffaa00")
+            self.name_label.configure(text_color="#cc7700")
 
         elif current_state == "speaking":
-            # Green breathing — speaking
-            self.pulse += 0.06 * self.pulse_dir
-            if self.pulse > 1 or self.pulse < 0:
-                self.pulse_dir *= -1
-            size = r + 12 * self.pulse
-            self.canvas.create_oval(
-                cx-size-6, cy-size-6, cx+size+6, cy+size+6,
-                fill="", outline="#1D7874", width=1
-            )
-            self.canvas.create_oval(
-                cx-size, cy-size, cx+size, cy+size,
-                fill="#1D9E75", outline=""
-            )
-            # Sound wave lines
-            for i in range(3):
-                wave_r = size + 15 + i * 10
-                opacity = 80 - i * 25
-                c = f"#00{opacity:02x}{opacity//2:02x}"
+            # Green breathing waves
+            intensity = abs(math.sin(self.frame * 0.12))
+
+            # Sound wave rings
+            for i in range(5):
+                rad = 50 + i * 13 + int(8 * intensity)
+                alpha = 1.0 - i * 0.18
+                g = int(200 * alpha * (0.5 + 0.5 * intensity))
+                b = int(120 * alpha)
+                c = self.rgb_to_hex(0, g, b)
+                self.draw_ring(cx, cy, rad, c, width=2 - (i > 2))
+
+            # Rotating outer ring
+            for i in range(20):
+                a = math.radians(self.ring_angle * 1.5 + i * 18)
+                x1 = cx + 95 * math.cos(a)
+                y1 = cy + 95 * math.sin(a)
+                bright = int(150 * (1 - i / 20))
+                color = self.rgb_to_hex(0, bright, int(bright * 0.6))
                 self.canvas.create_oval(
-                    cx-wave_r, cy-wave_r, cx+wave_r, cy+wave_r,
-                    fill="", outline=f"#00{opacity+50:02x}50", width=1
+                    x1-2, y1-2, x1+2, y1+2,
+                    fill=color, outline=""
                 )
-            self.label.configure(text="Speaking...", text_color="#1D9E75")
+
+            # Core
+            g_core = int(150 + 105 * intensity)
+            self.canvas.create_oval(
+                cx-50, cy-50, cx+50, cy+50,
+                fill=self.rgb_to_hex(0, 80, 60),
+                outline=self.rgb_to_hex(0, g_core, 120), width=2
+            )
+            self.canvas.create_oval(
+                cx-25, cy-25, cx+25, cy+25,
+                fill=self.rgb_to_hex(0, g_core, 100),
+                outline=""
+            )
+            self.canvas.create_oval(
+                cx-10, cy-10, cx+10, cy+10,
+                fill="#00ffaa", outline=""
+            )
+            self.label.configure(text="SPEAKING", text_color="#00dd88")
+            self.name_label.configure(text_color="#009955")
 
         self.root.after(30, self.animate)
 

@@ -1,4 +1,4 @@
-# jarvis.py — Final JARVIS with openWakeWord + Whisper GPU + Groq
+# jarvis.py — Final JARVIS
 from faster_whisper import WhisperModel
 import sounddevice as sd
 import scipy.io.wavfile as wav
@@ -14,8 +14,6 @@ import pyautogui
 import threading
 import time
 import numpy as np
-import openwakeword
-from openwakeword.model import Model
 from ui import set_state, start_ui
 from config import GROQ_API_KEY
 
@@ -31,10 +29,6 @@ client = Groq(api_key=GROQ_API_KEY)
 
 print('Loading voice recognition...')
 whisper_model = WhisperModel('medium', device='cuda', compute_type='float16')
-
-print('Loading wake word model...')
-openwakeword.utils.download_models()
-wake_model = Model(wakeword_models=["hey_jarvis"], inference_framework='onnx')
 print('JARVIS ready.')
 
 conversation_history = []
@@ -129,7 +123,7 @@ def speak(text):
     playsound.playsound("jarvis_reply.mp3")
     os.remove("jarvis_reply.mp3")
 
-def record_audio(duration=10, sample_rate=16000):
+def record_audio(duration=3, sample_rate=16000):
     audio = sd.rec(
         int(duration * sample_rate),
         samplerate=sample_rate,
@@ -156,24 +150,17 @@ def transcribe(audio, sample_rate):
 
 def wait_for_wake_word():
     set_state("sleeping")
-    print('Sleeping... say Hey JARVIS to wake me.')
-    sample_rate = 16000
-    chunk_size = 1280
-
+    print('Sleeping... say Hey JARVIS clearly.')
     while True:
         try:
-            audio_chunk = sd.rec(
-                chunk_size,
-                samplerate=sample_rate,
-                channels=1,
-                dtype='int16'
-            )
-            sd.wait()
-            audio_int16 = audio_chunk.flatten()
-            prediction = wake_model.predict(audio_int16)
-            score = prediction.get('hey_jarvis', 0)
-            if score > 0.5:
-                print(f'Wake word detected! (score: {score:.2f})')
+            audio, sr_rate = record_audio(duration=2)
+            # Skip if no real voice energy detected
+            if np.max(np.abs(audio)) < 0.01:
+                continue
+            text = transcribe(audio, sr_rate).lower().strip()
+            if len(text) > 2:
+                print(f'Heard: {text}')
+            if 'jarvis' in text:
                 return True
         except KeyboardInterrupt:
             return False
@@ -238,7 +225,7 @@ finally:
 # Run: py -3.12 jarvis.py
 #
 # WAKE WORD:
-#   Say "Hey JARVIS" clearly
+#   Say "Hey JARVIS" clearly and wait
 #
 # AFTER "Yes Madhvi?" say:
 #   "What is the capital of France?"
@@ -250,4 +237,4 @@ finally:
 #   "Search Google for weather today"
 #   "Volume up" / "Volume down" / "Mute volume"
 #   "Take a screenshot"
-#   "Okay stop" — to shutdown
+#   "Okay stop" to shutdown
