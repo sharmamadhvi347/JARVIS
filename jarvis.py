@@ -1,4 +1,4 @@
-# jarvis.py — Phase 2 JARVIS with UI
+# jarvis.py — Final JARVIS with openWakeWord + Whisper GPU + Groq
 from faster_whisper import WhisperModel
 import sounddevice as sd
 import scipy.io.wavfile as wav
@@ -13,6 +13,9 @@ import webbrowser
 import pyautogui
 import threading
 import time
+import numpy as np
+import openwakeword
+from openwakeword.model import Model
 from ui import set_state, start_ui
 from config import GROQ_API_KEY
 
@@ -27,14 +30,18 @@ print('Initialising JARVIS systems...')
 client = Groq(api_key=GROQ_API_KEY)
 
 print('Loading voice recognition...')
-whisper_model = WhisperModel('tiny', device='cpu', compute_type='int8')
+whisper_model = WhisperModel('medium', device='cuda', compute_type='float16')
+
+print('Loading wake word model...')
+openwakeword.utils.download_models()
+wake_model = Model(wakeword_models=["hey_jarvis"], inference_framework='onnx')
 print('JARVIS ready.')
 
 conversation_history = []
 
 JARVIS_PERSONALITY = (
     'You are JARVIS, a highly intelligent personal AI assistant installed on a Windows computer. '
-    'You are witty, efficient and always address the user as Sir. '
+    'You are witty, efficient and always address the user as Madhvi. '
     'Keep responses concise — 1 to 2 sentences unless asked to elaborate. '
     'When the user asks to open an app, search something, or control the PC, '
     'respond naturally and confirm what you are doing.'
@@ -61,36 +68,36 @@ def open_app(app_name):
         if key in app_name:
             try:
                 subprocess.Popen(APPS[key])
-                return f'Opening {key}, Sir.'
+                return f'Opening {key}, Madhvi.'
             except:
-                return f'Could not find {key}, Sir.'
+                return f'Could not find {key}, Madhvi.'
     return None
 
 def search_web(query):
     webbrowser.open(f'https://www.google.com/search?q={query}')
-    return f'Searching Google for {query}, Sir.'
+    return f'Searching Google for {query}, Madhvi.'
 
 def search_youtube(query):
     webbrowser.open(f'https://www.youtube.com/results?search_query={query}')
-    return f'Searching YouTube for {query}, Sir.'
+    return f'Searching YouTube for {query}, Madhvi.'
 
 def take_screenshot():
     path = r'C:\Users\victus\OneDrive\Desktop\screenshot.png'
     pyautogui.screenshot(path)
-    return 'Screenshot saved to your Desktop, Sir.'
+    return 'Screenshot saved to your Desktop, Madhvi.'
 
 def control_volume(action):
     if 'up' in action or 'increase' in action:
         for _ in range(5):
             pyautogui.press('volumeup')
-        return 'Volume increased, Sir.'
+        return 'Volume increased, Madhvi.'
     elif 'down' in action or 'decrease' in action or 'lower' in action:
         for _ in range(5):
             pyautogui.press('volumedown')
-        return 'Volume decreased, Sir.'
+        return 'Volume decreased, Madhvi.'
     elif 'mute' in action:
         pyautogui.press('volumemute')
-        return 'Volume muted, Sir.'
+        return 'Volume muted, Madhvi.'
 
 def handle_command(command):
     command_lower = command.lower()
@@ -122,7 +129,7 @@ def speak(text):
     playsound.playsound("jarvis_reply.mp3")
     os.remove("jarvis_reply.mp3")
 
-def record_audio(duration=3, sample_rate=16000):
+def record_audio(duration=10, sample_rate=16000):
     audio = sd.rec(
         int(duration * sample_rate),
         samplerate=sample_rate,
@@ -140,7 +147,7 @@ def transcribe(audio, sample_rate):
         temp_path,
         language='en',
         condition_on_previous_text=False,
-        no_speech_threshold=0.6,
+        no_speech_threshold=0.8,
         log_prob_threshold=-1.0
     )
     text = ' '.join([s.text for s in segments]).strip()
@@ -149,13 +156,24 @@ def transcribe(audio, sample_rate):
 
 def wait_for_wake_word():
     set_state("sleeping")
+    print('Sleeping... say Hey JARVIS to wake me.')
+    sample_rate = 16000
+    chunk_size = 1280
+
     while True:
         try:
-            audio, sr_rate = record_audio(duration=3)
-            text = transcribe(audio, sr_rate).lower().strip()
-            if len(text) > 2:
-                print(f'Heard: {text}')
-            if 'jarvis' in text:
+            audio_chunk = sd.rec(
+                chunk_size,
+                samplerate=sample_rate,
+                channels=1,
+                dtype='int16'
+            )
+            sd.wait()
+            audio_int16 = audio_chunk.flatten()
+            prediction = wake_model.predict(audio_int16)
+            score = prediction.get('hey_jarvis', 0)
+            if score > 0.5:
+                print(f'Wake word detected! (score: {score:.2f})')
                 return True
         except KeyboardInterrupt:
             return False
@@ -174,7 +192,7 @@ def ask_groq(user_input):
     return reply
 
 # ── Main Loop ────────────────────────────────────────────
-speak('JARVIS online. Say Hey JARVIS to begin.')
+speak('JARVIS online. Say Hey JARVIS to begin, Madhvi.')
 
 try:
     while True:
@@ -183,19 +201,19 @@ try:
             break
 
         set_state("listening")
-        speak('Yes, Sir?')
+        speak('Yes, Madhvi?')
 
-        audio, sr_rate = record_audio(duration=5)
+        audio, sr_rate = record_audio(duration=10)
         command = transcribe(audio, sr_rate)
 
         if not command or len(command) < 3:
-            speak('I did not catch that, Sir.')
+            speak('I did not catch that, Madhvi.')
             continue
 
         print(f'You said: {command}')
 
-        if any(w in command.lower() for w in ['okay jarvis stop', 'stop jarvis', 'goodbye jarvis', 'shutdown']):
-            speak('Shutting down. Goodbye, Sir.')
+        if any(w in command.lower() for w in ['okay stop', 'stop now', 'goodbye', 'shutdown']):
+            speak('Shutting down. Goodbye, Madhvi.')
             break
 
         set_state("thinking")
@@ -209,9 +227,27 @@ try:
                 speak(reply)
             except Exception as e:
                 print(f'Groq error: {e}')
-                speak('I encountered an error, Sir.')
+                speak('I encountered an error, Madhvi.')
 
 except KeyboardInterrupt:
-    speak('Manual shutdown. Goodbye.')
+    speak('Manual shutdown. Goodbye, Madhvi.')
 finally:
     print('JARVIS offline.')
+
+# ── TEST COMMANDS ─────────────────────────────────────────
+# Run: py -3.12 jarvis.py
+#
+# WAKE WORD:
+#   Say "Hey JARVIS" clearly
+#
+# AFTER "Yes Madhvi?" say:
+#   "What is the capital of France?"
+#   "Tell me a joke"
+#   "Open Spotify"
+#   "Open VS Code"
+#   "Open Notepad"
+#   "Search YouTube for Iron Man"
+#   "Search Google for weather today"
+#   "Volume up" / "Volume down" / "Mute volume"
+#   "Take a screenshot"
+#   "Okay stop" — to shutdown
